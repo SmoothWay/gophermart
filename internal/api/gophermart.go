@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/SmoothWay/gophermart/internal/logger"
 	"github.com/SmoothWay/gophermart/internal/model"
 	postgresrepo "github.com/SmoothWay/gophermart/internal/repository/postgres"
 	"github.com/SmoothWay/gophermart/internal/service"
@@ -17,6 +18,7 @@ import (
 	"github.com/lib/pq"
 )
 
+//go:generate mockery --name Service --output "../mocks"
 type Service interface {
 	RegisterUser(ctx context.Context, login, password string) error
 	Authenticate(ctx context.Context, login, password string) (string, error)
@@ -28,7 +30,6 @@ type Service interface {
 }
 
 type Gophermart struct {
-	logger  *slog.Logger
 	service Service
 	secret  []byte
 }
@@ -37,9 +38,8 @@ var _ StrictServerInterface = (*Gophermart)(nil)
 
 var MessageInternalError = "internal server error"
 
-func NewGophermart(logger *slog.Logger, service Service, secret []byte) *Gophermart {
+func NewGophermart(service Service, secret []byte) *Gophermart {
 	return &Gophermart{
-		logger:  logger,
 		service: service,
 		secret:  secret,
 	}
@@ -48,7 +48,7 @@ func NewGophermart(logger *slog.Logger, service Service, secret []byte) *Gopherm
 func (g *Gophermart) RegisterUser(ctx context.Context, request RegisterUserRequestObject) (RegisterUserResponseObject, error) {
 	err := g.service.RegisterUser(ctx, request.Body.Login, request.Body.Password)
 	if err != nil {
-		g.logger.Info("Register user error", slog.String("error", err.Error()))
+		logger.Log().Info("Register user error", slog.String("error", err.Error()))
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) {
 			if pqErr.Code.Name() == "unique_violation" {
@@ -65,7 +65,7 @@ func (g *Gophermart) RegisterUser(ctx context.Context, request RegisterUserReque
 
 	token, err := g.service.Authenticate(ctx, request.Body.Login, request.Body.Password)
 	if err != nil {
-		g.logger.Info("Authentication error", slog.String("error", err.Error()))
+		logger.Log().Info("Authentication error", slog.String("error", err.Error()))
 		return RegisterUser500JSONResponse{
 			Message: MessageInternalError,
 		}, nil
@@ -81,7 +81,7 @@ func (g *Gophermart) RegisterUser(ctx context.Context, request RegisterUserReque
 func (g *Gophermart) LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error) {
 	token, err := g.service.Authenticate(ctx, request.Body.Login, request.Body.Password)
 	if err != nil {
-		g.logger.Info("Authentication error", slog.String("error", err.Error()))
+		logger.Log().Info("Authentication error", slog.String("error", err.Error()))
 
 		if errors.Is(err, sql.ErrNoRows) {
 			return LoginUser401JSONResponse{
@@ -107,7 +107,7 @@ func (g *Gophermart) GetOrders(ctx context.Context, _ GetOrdersRequestObject) (G
 
 	orders, err := g.service.GetOrders(ctx, userID)
 	if err != nil {
-		g.logger.Info("GetOrder error", slog.String("error", err.Error()))
+		logger.Log().Info("GetOrder error", slog.String("error", err.Error()))
 		if errors.Is(err, sql.ErrNoRows) {
 			return GetOrders204Response{}, nil
 		}
@@ -143,7 +143,7 @@ func (g *Gophermart) UploadOrder(ctx context.Context, request UploadOrderRequest
 
 	err := g.service.UploadOrder(ctx, userID, *request.Body)
 	if err != nil {
-		g.logger.Info("Upload order error", slog.String("error", err.Error()))
+		logger.Log().Info("Upload order error", slog.String("error", err.Error()))
 		var pgErr *pq.Error
 
 		if errors.As(err, &pgErr) {
@@ -169,7 +169,7 @@ func (g *Gophermart) GetBalance(ctx context.Context, _ GetBalanceRequestObject) 
 
 	balance, withdrawn, err := g.service.GetBalance(ctx, userID)
 	if err != nil {
-		g.logger.Info("GetBalance error", slog.String("error", err.Error()))
+		logger.Log().Info("GetBalance error", slog.String("error", err.Error()))
 		if errors.Is(err, sql.ErrNoRows) {
 			return GetBalance200JSONResponse{}, nil
 		}
@@ -198,7 +198,7 @@ func (g *Gophermart) WithdrawalRequest(ctx context.Context, request WithdrawalRe
 
 	err := g.service.WithdrawalRequest(ctx, userID, request.Body.Order, request.Body.Sum)
 	if err != nil {
-		g.logger.Info("WithdrwalRequest error", slog.String("error", err.Error()))
+		logger.Log().Info("WithdrwalRequest error", slog.String("error", err.Error()))
 		if errors.Is(err, postgresrepo.ErrNotEnoughFunds) {
 			return WithdrawalRequest402JSONResponse{
 				Message: postgresrepo.ErrNotEnoughFunds.Error(),
@@ -219,7 +219,7 @@ func (g *Gophermart) GetWithdrawals(ctx context.Context, request GetWithdrawalsR
 
 	withdrwals, err := g.service.GetWithdrawals(ctx, userID)
 	if err != nil {
-		g.logger.Info("GetWithdrawls error", slog.String("error", err.Error()))
+		logger.Log().Info("GetWithdrawls error", slog.String("error", err.Error()))
 		if errors.Is(err, sql.ErrNoRows) {
 			return GetWithdrawals204Response{}, nil
 		}

@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/SmoothWay/gophermart/internal/logger"
 	"github.com/SmoothWay/gophermart/internal/model"
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/jwa"
@@ -31,6 +32,7 @@ var (
 	ErrHittingRateLimit             = errors.New("hitting rate limit")
 )
 
+//go:generate mockery --name Repository --output "../mocks"
 type Repository interface {
 	AddUser(ctx context.Context, login, password string) error
 	GetUser(ctx context.Context, login, password string) (*model.User, error)
@@ -43,12 +45,12 @@ type Repository interface {
 	GetWithdrawals(ctx context.Context, userID uuid.UUID) ([]model.Withdrawal, error)
 }
 
+//go:generate mockery --name HTTPClient --output "../mocks"
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
 type Service struct {
-	logger     *slog.Logger
 	storage    Repository
 	client     HTTPClient
 	secret     []byte
@@ -56,9 +58,8 @@ type Service struct {
 	timeout    atomic.Int64
 }
 
-func New(logger *slog.Logger, storage Repository, client HTTPClient, secret []byte, url string) *Service {
+func New(storage Repository, client HTTPClient, secret []byte, url string) *Service {
 	return &Service{
-		logger:     logger,
 		storage:    storage,
 		secret:     secret,
 		accrualURL: url,
@@ -93,7 +94,7 @@ func (s *Service) UploadOrder(ctx context.Context, userID uuid.UUID, orderNumber
 	var o *model.Order
 	o, err = s.fetchOrder(ctx, orderNumber)
 	if err != nil {
-		s.logger.Info("Failed to fetch order status, creating NEW order", slog.String("error", err.Error()))
+		logger.Log().Info("Failed to fetch order status, creating NEW order", slog.String("error", err.Error()))
 		o = &model.Order{
 			Number: orderNumber,
 			Status: "NEW",
@@ -188,7 +189,7 @@ func (s *Service) worker(ctx context.Context, wg *sync.WaitGroup, order <-chan m
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("Worker has been stopped", slog.String("reason", ctx.Err().Error()))
+			logger.Log().Info("Worker has been stopped", slog.String("reason", ctx.Err().Error()))
 			return
 		default:
 			o, ok := <-order
@@ -197,10 +198,7 @@ func (s *Service) worker(ctx context.Context, wg *sync.WaitGroup, order <-chan m
 			}
 			o1, err := s.retryForRateLimit(ctx, o.Number, s.fetchOrder)
 			if err != nil {
-				if errors.Is(err, ErrNoContent) {
-
-				}
-				s.logger.Info("Worker error", slog.String("error", err.Error()))
+				logger.Log().Info("Worker error", slog.String("error", err.Error()))
 				continue
 			}
 			if o1.Status == o.Status {

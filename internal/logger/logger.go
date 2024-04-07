@@ -1,50 +1,42 @@
 package logger
 
 import (
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"log/slog"
+	"os"
 )
 
 type Logger struct {
-	logger *zap.Logger
+	logger *slog.Logger
 }
 
 var log *Logger
 
-func Init(level string) error {
-	lvl, err := zap.ParseAtomicLevel(level)
-	if err != nil {
-		return err
+func InitSlog(level string) {
+	var slogLevel slog.Leveler
+	switch level {
+	case "INFO":
+		slogLevel = slog.LevelInfo
+	case "DEBUG":
+		slogLevel = slog.LevelDebug
+	case "ERROR":
+		slogLevel = slog.LevelError
 	}
-	cfg := zap.NewProductionConfig()
-
-	cfg.Level = lvl
-
-	zl, err := cfg.Build()
-
-	if err != nil {
-		return err
-	}
-
-	log = &Logger{logger: zl}
-
-	return nil
+	slogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel}))
+	log = &Logger{logger: slogger}
 }
 
-func (l *Logger) Info(title string, msg ...zapcore.Field) {
-
+func (l *Logger) Info(title string, msg ...any) {
 	l.logger.Info(title, msg...)
 }
 
-func (l *Logger) Warn(title string, msg ...zapcore.Field) {
+func (l *Logger) Warn(title string, msg ...any) {
 	l.logger.Warn(title, msg...)
 }
 
-func (l *Logger) Fatal(title string, err ...zapcore.Field) {
-	l.logger.Fatal(title, err...)
+func (l *Logger) Debug(title string, msg ...any) {
+	l.logger.Debug(title, msg...)
 }
-
-func (l *Logger) Error(title string, err ...zapcore.Field) {
+func (l *Logger) Error(title string, err ...any) {
 	l.logger.Error(title, err...)
 }
 

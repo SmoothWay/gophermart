@@ -11,6 +11,7 @@ type ServerConfig struct {
 	DSN            string `env:"DATABASE_DSN"`
 	Secret         string `env:"SECRET" envDefault:"key"`
 	AccuralSysAddr string `env:"ACCRUAL_SYSTEM_ADDRESS"`
+	LogLevel       string `env:"LOG_LEVEL"`
 }
 
 func NewServerConfig() *ServerConfig {
@@ -34,6 +35,9 @@ func NewServerConfig() *ServerConfig {
 		serverConfig.AccuralSysAddr = config.AccuralSysAddr
 	}
 
+	if serverConfig.LogLevel == "" {
+		serverConfig.LogLevel = config.LogLevel
+	}
 	return serverConfig
 }
 
@@ -43,6 +47,7 @@ func parseServerFlags() *ServerConfig {
 	flag.StringVar(&config.Host, "a", "localhost:8080", "server host")
 	flag.StringVar(&config.DSN, "d", "user=postgres password=postgres host=127.0.0.1 port=5432 dbname=gophermartDB sslmode=disable", "DB connection string")
 	flag.StringVar(&config.AccuralSysAddr, "r", "", "accural addr")
+	flag.StringVar(&config.LogLevel, "l", "INFO", "logging level [\"INFO\", \"DEBUG\", \"ERROR\"]")
 
 	flag.Parse()
 

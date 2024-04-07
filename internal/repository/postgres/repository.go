@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SmoothWay/gophermart/internal/logger"
 	"github.com/SmoothWay/gophermart/internal/model"
 	"github.com/google/uuid"
 )
@@ -17,14 +18,12 @@ import (
 var ErrNotEnoughFunds = errors.New("not enough balance")
 
 type Repository struct {
-	l  *slog.Logger
 	db *sql.DB
 }
 
-func New(connection *sql.DB, logger *slog.Logger) *Repository {
+func New(connection *sql.DB) *Repository {
 	return &Repository{
 		db: connection,
-		l:  logger,
 	}
 }
 
@@ -72,8 +71,7 @@ func (r *Repository) WithdrawalRequest(ctx context.Context, userID uuid.UUID, or
 		return err
 	}
 
-	tx.Commit()
-	return nil
+	return tx.Commit()
 }
 
 func (r *Repository) AddOrder(ctx context.Context, userID uuid.UUID, order model.Order) error {
@@ -98,8 +96,7 @@ func (r *Repository) AddOrder(ctx context.Context, userID uuid.UUID, order model
 		}
 	}
 
-	tx.Commit()
-	return nil
+	return tx.Commit()
 }
 
 func (r *Repository) UpdateOrder(ctx context.Context, userID uuid.UUID, order model.Order) error {
@@ -119,8 +116,7 @@ func (r *Repository) UpdateOrder(ctx context.Context, userID uuid.UUID, order mo
 		return err
 	}
 
-	tx.Commit()
-	return nil
+	return tx.Commit()
 }
 
 func (r *Repository) GetWithdrawals(ctx context.Context, userID uuid.UUID) ([]model.Withdrawal, error) {
@@ -152,12 +148,12 @@ func (r *Repository) GetWithdrawals(ctx context.Context, userID uuid.UUID) ([]mo
 func (r *Repository) GetBalance(ctx context.Context, userID uuid.UUID) (float64, float64, error) {
 	var balance float64
 	var withdrawn float64
-	err := r.db.QueryRowContext(ctx, `SELECT balance FROM balances WHERE user_id = $1`, userID).Scan(&balance)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	err = r.db.QueryRowContext(ctx, `SELECT sum FROM withdraw_balances WHERE user_id = $1`, userID).Scan(&withdrawn)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT b.balance, w.sum
+		FROM balances b
+		LEFT JOIN withdraw_balances w ON b.user_id = w.user_id
+		WHERE b.user_id = $1;
+	`, userID).Scan(&balance, &withdrawn)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -214,7 +210,7 @@ func (r *Repository) AddUser(ctx context.Context, login, password string) error 
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`INSERT INTO users (id, login, password) VALUES ($1, $2, $3)`, userID, login, password)
+	_, err = tx.Exec(`INSERT INTO users (id, login, password) VALUES ($1, $2, $3)`, userID, login, hash(password))
 	if err != nil {
 		return err
 	}
@@ -229,14 +225,14 @@ func (r *Repository) AddUser(ctx context.Context, login, password string) error 
 		return err
 	}
 
-	tx.Commit()
-	return nil
+	return tx.Commit()
 }
 
 func (r *Repository) GetUser(ctx context.Context, login, password string) (*model.User, error) {
 	var u model.User
 
-	err := r.db.QueryRowContext(ctx, `SELECT id, login, password FROM users WHERE login = $1 AND password = $2`, login, password).Scan(&u.ID, &u.Login, &u.Password)
+	err := r.db.QueryRowContext(ctx, `SELECT id, login, password FROM users WHERE login = $1 AND password = $2`,
+		login, hash(password)).Scan(&u.ID, &u.Login, &u.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -252,14 +248,14 @@ func (r *Repository) ScanOrders(ctx context.Context) <-chan model.Order {
 
 	go func() {
 		defer wg.Done()
-		r.l.Info("Scanning orders")
+		logger.Log().Info("Scanning orders")
 		for {
 			select {
 			case <-time.After(5 * time.Second):
 
 				rows, err := r.db.QueryContext(ctx, `SELECT order_number, status, user_id FROM orders WHERE status != $1 and status != $2`, "PROCESSED", "INVALID")
 				if err != nil {
-					r.l.Info("Scanning orders error", slog.String("error", err.Error()))
+					logger.Log().Info("Scanning orders error", slog.String("error", err.Error()))
 					continue
 				}
 				defer rows.Close()
@@ -269,7 +265,7 @@ func (r *Repository) ScanOrders(ctx context.Context) <-chan model.Order {
 				for rows.Next() {
 					err = rows.Scan(&o.Number, &o.Status, &o.UserID)
 					if err != nil {
-						r.l.Info("Scanning orders error", slog.String("error", err.Error()))
+						logger.Log().Info("Scanning orders error", slog.String("error", err.Error()))
 						continue
 					}
 
@@ -278,11 +274,11 @@ func (r *Repository) ScanOrders(ctx context.Context) <-chan model.Order {
 
 				err = rows.Err()
 				if err != nil {
-					r.l.Info("Scanning orders error", slog.String("error", err.Error()))
+					logger.Log().Info("Scanning orders error", slog.String("error", err.Error()))
 					continue
 				}
 			case <-ctx.Done():
-				r.l.Info("Scanning orders stopped")
+				logger.Log().Info("Scanning orders stopped")
 				return
 			}
 		}
@@ -290,7 +286,7 @@ func (r *Repository) ScanOrders(ctx context.Context) <-chan model.Order {
 
 	go func() {
 		wg.Wait()
-		r.l.Info("Closing channel")
+		logger.Log().Info("Closing channel")
 		close(ch)
 	}()
 

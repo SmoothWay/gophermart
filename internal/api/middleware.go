@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/SmoothWay/gophermart/internal/logger"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/jwa"
@@ -68,12 +69,12 @@ func Authenticate(secret []byte) func(http.Handler) http.Handler {
 	}
 }
 
-func LogRequest(logger *slog.Logger) func(http.Handler) http.Handler {
+func LogRequest() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
-			logger.Info("request", slog.Any("URL", r.URL.Path), slog.String("RemoteAddr", r.RemoteAddr), slog.Int("status", ww.Status()))
+			logger.Log().Info("request", slog.Any("URL", r.URL.Path), slog.String("RemoteAddr", r.RemoteAddr), slog.Int("status", ww.Status()))
 		})
 	}
 }
